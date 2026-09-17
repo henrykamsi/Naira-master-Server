@@ -45,7 +45,7 @@ const NODE_ENV =
   process.env.NODE_ENV || "development";
 
 const SQUAD_ENV =
-  String(process.env.SQUAD_ENV || "sandbox").toLowerCase();
+  String(process.env.SQUAD_ENV || "production").toLowerCase();
 
 const FRONTEND_URL =
   process.env.FRONTEND_URL || "*";
@@ -94,6 +94,62 @@ if (!process.env.FIREBASE_PRIVATE_KEY) {
 
 
 /* ============================================================
+   FIREBASE PRIVATE KEY NORMALIZER
+   ============================================================
+ *
+ * Handles all common formats Render may store:
+ *
+ *  1. Value wrapped in quotes   -> strip them
+ *  2. Literal \n characters     -> convert to real newlines
+ *  3. Real newlines already     -> leave alone
+ *  4. Stray \r or whitespace    -> clean up
+ *
+ * Then validates that the key has the correct PEM header
+ * and footer so any error is obvious and not the cryptic
+ * OpenSSL "DECODER routines::unsupported" message.
+ *
+ * ============================================================ */
+
+function normalizeFirebasePrivateKey(raw) {
+  let key = String(raw || "").trim();
+
+  if (
+    key.startsWith('"') &&
+    key.endsWith('"')
+  ) {
+    key = key.slice(1, -1);
+  }
+
+  if (
+    key.startsWith("'") &&
+    key.endsWith("'")
+  ) {
+    key = key.slice(1, -1);
+  }
+
+  key = key.replace(/\\r\\n/g, "\n");
+  key = key.replace(/\\n/g, "\n");
+  key = key.replace(/\r\n/g, "\n");
+  key = key.replace(/\r/g, "\n");
+
+  key = key.trim();
+
+  if (
+    !key.startsWith("-----BEGIN PRIVATE KEY-----") ||
+    !key.endsWith("-----END PRIVATE KEY-----")
+  ) {
+    throw new Error(
+      "FIREBASE_PRIVATE_KEY is malformed. It must start with " +
+      "-----BEGIN PRIVATE KEY----- and end with " +
+      "-----END PRIVATE KEY-----."
+    );
+  }
+
+  return key;
+}
+
+
+/* ============================================================
    FIREBASE ADMIN
    ============================================================ */
 
@@ -106,8 +162,9 @@ admin.initializeApp({
       process.env.FIREBASE_CLIENT_EMAIL,
 
     privateKey:
-      process.env.FIREBASE_PRIVATE_KEY
-        .replace(/\\n/g, "\n")
+      normalizeFirebasePrivateKey(
+        process.env.FIREBASE_PRIVATE_KEY
+      )
   })
 });
 
@@ -313,17 +370,6 @@ function safeEqual(a, b) {
     return false;
 
   }
-
-}
-
-
-/**
- * Normalize Firebase private key.
- */
-function normalizePrivateKey(key) {
-
-  return String(key)
-    .replace(/\\n/g, "\n");
 
 }
 
@@ -2516,532 +2562,3 @@ app.get(
       return res.json({
 
         success: true,
-
-        data:
-          response?.data ||
-          response
-
-      });
-
-    } catch (error) {
-
-      return res.status(
-        error.status || 400
-      ).json({
-
-        success: false,
-
-        message:
-          error.message ||
-          "Unable to retrieve merchant virtual accounts."
-
-      });
-
-    }
-
-  }
-);
-
-
-/* ============================================================
-   MERCHANT VIRTUAL ACCOUNT TRANSACTIONS
-   ============================================================ */
-
-app.get(
-  "/api/virtual-accounts/merchant/transactions",
-  async (req, res) => {
-
-    try {
-
-      const response =
-        await squadRequest(
-          "/virtual-account/merchant/transactions"
-        );
-
-
-      return res.json({
-
-        success: true,
-
-        data:
-          response?.data ||
-          response
-
-      });
-
-    } catch (error) {
-
-      return res.status(
-        error.status || 400
-      ).json({
-
-        success: false,
-
-        message:
-          error.message ||
-          "Unable to retrieve merchant transactions."
-
-      });
-
-    }
-
-  }
-);
-
-
-/* ============================================================
-   MERCHANT VIRTUAL ACCOUNT TRANSACTIONS — FILTERED
-   ============================================================ */
-
-app.get(
-  "/api/virtual-accounts/merchant/transactions/all",
-  async (req, res) => {
-
-    try {
-
-      const allowed = [
-
-        "page",
-
-        "perPage",
-
-        "virtualAccount",
-
-        "customerIdentifier",
-
-        "startDate",
-
-        "endDate",
-
-        "transactionReference",
-
-        "session_id",
-
-        "dir"
-
-      ];
-
-
-      const query =
-        new URLSearchParams();
-
-
-      for (
-        const key of allowed
-      ) {
-
-        if (
-          req.query[key] !==
-          undefined
-        ) {
-
-          query.set(
-            key,
-            req.query[key]
-          );
-
-        }
-
-      }
-
-
-      const response =
-        await squadRequest(
-
-          `/virtual-account/merchant/transactions/all?${query.toString()}`
-
-        );
-
-
-      return res.json({
-
-        success: true,
-
-        data:
-          response?.data ||
-          response
-
-      });
-
-    } catch (error) {
-
-      return res.status(
-        error.status || 400
-      ).json({
-
-        success: false,
-
-        message:
-          error.message ||
-          "Unable to retrieve filtered merchant transactions."
-
-      });
-
-    }
-
-  }
-);
-
-
-/* ============================================================
-   VIRTUAL ACCOUNT WEBHOOK ERROR LOG
-   ============================================================ */
-
-app.get(
-  "/api/virtual-accounts/webhook-logs",
-  async (req, res) => {
-
-    try {
-
-      const query =
-        new URLSearchParams();
-
-
-      if (
-        req.query.page
-      ) {
-
-        query.set(
-          "page",
-          req.query.page
-        );
-
-      }
-
-
-      if (
-        req.query.perPage
-      ) {
-
-        query.set(
-          "perPage",
-          req.query.perPage
-        );
-
-      }
-
-
-      const response =
-        await squadRequest(
-
-          `/virtual-account/webhook/logs?${query.toString()}`
-
-        );
-
-
-      return res.json({
-
-        success: true,
-
-        data:
-          response?.data ||
-          response
-
-      });
-
-    } catch (error) {
-
-      return res.status(
-        error.status || 400
-      ).json({
-
-        success: false,
-
-        message:
-          error.message ||
-          "Unable to retrieve webhook error logs."
-
-      });
-
-    }
-
-  }
-);
-
-
-/* ============================================================
-   DELETE PROCESSED WEBHOOK ERROR
-   ============================================================ */
-
-app.delete(
-  "/api/virtual-accounts/webhook-logs/:transactionReference",
-  async (req, res) => {
-
-    try {
-
-      const reference =
-        encodeURIComponent(
-          req.params.transactionReference
-        );
-
-
-      const response =
-        await squadRequest(
-
-          `/virtual-account/webhook/logs/${reference}`,
-
-          {
-
-            method:
-              "DELETE"
-
-          }
-
-        );
-
-
-      return res.json({
-
-        success: true,
-
-        data:
-          response?.data ||
-          response
-
-      });
-
-    } catch (error) {
-
-      return res.status(
-        error.status || 400
-      ).json({
-
-        success: false,
-
-        message:
-          error.message ||
-          "Unable to delete webhook log."
-
-      });
-
-    }
-
-  }
-);
-
-
-/* ============================================================
-   QUERY SQUAD TRANSACTION
-   ============================================================ */
-
-/*
- * Squad's transaction API requires dates.
- *
- * This endpoint is intentionally server-side.
- */
-
-app.get(
-  "/api/squad/transactions",
-  authenticateFirebaseUser,
-  async (req, res) => {
-
-    try {
-
-      const today =
-        new Date();
-
-      const endDate =
-        req.query.end_date ||
-        today
-          .toISOString()
-          .slice(
-            0,
-            10
-          );
-
-
-      const startDate =
-        req.query.start_date ||
-        new Date(
-          today.getTime() -
-          30 *
-          24 *
-          60 *
-          60 *
-          1000
-        )
-          .toISOString()
-          .slice(
-            0,
-            10
-          );
-
-
-      const query =
-        new URLSearchParams({
-
-          start_date:
-            startDate,
-
-          end_date:
-            endDate
-
-        });
-
-
-      if (
-        req.query.reference
-      ) {
-
-        query.set(
-          "reference",
-          req.query.reference
-        );
-
-      }
-
-
-      if (
-        req.query.page
-      ) {
-
-        query.set(
-          "page",
-          req.query.page
-        );
-
-      }
-
-
-      if (
-        req.query.perpage
-      ) {
-
-        query.set(
-          "perpage",
-          req.query.perpage
-        );
-
-      }
-
-
-      const response =
-        await squadRequest(
-
-          `/transaction?${query.toString()}`
-
-        );
-
-
-      return res.json({
-
-        success: true,
-
-        data:
-          response?.data ||
-          response
-
-      });
-
-    } catch (error) {
-
-      return res.status(
-        error.status || 400
-      ).json({
-
-        success: false,
-
-        message:
-          error.message ||
-          "Unable to query Squad transactions."
-
-      });
-
-    }
-
-  }
-);
-
-
-/* ============================================================
-   GLOBAL 404
-   ============================================================ */
-
-app.use(
-  (_req, res) => {
-
-    res.status(404).json({
-
-      success: false,
-
-      message:
-        "Naira Master API route not found."
-
-    });
-
-  }
-);
-
-
-/* ============================================================
-   GLOBAL ERROR HANDLER
-   ============================================================ */
-
-app.use(
-  (error, _req, res, _next) => {
-
-    console.error(
-      "GLOBAL SERVER ERROR:",
-      error
-    );
-
-
-    res.status(500).json({
-
-      success: false,
-
-      message:
-        "Internal server error."
-
-    });
-
-  }
-);
-
-
-/* ============================================================
-   START SERVER
-   ============================================================ */
-
-app.listen(
-  PORT,
-  () => {
-
-    console.log(
-      "================================================"
-    );
-
-    console.log(
-      "NAIRA MASTER HGT SQUAD SERVER"
-    );
-
-    console.log(
-      "================================================"
-    );
-
-    console.log(
-      `Port: ${PORT}`
-    );
-
-    console.log(
-      `Environment: ${NODE_ENV}`
-    );
-
-    console.log(
-      `Squad environment: ${SQUAD_ENV}`
-    );
-
-    console.log(
-      `Squad API: ${SQUAD_BASE_URL}`
-    );
-
-    console.log(
-      "Server is running."
-    );
-
-    console.log(
-      "================================================"
-    );
-
-  }
-);
